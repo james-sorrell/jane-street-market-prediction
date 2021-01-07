@@ -1,3 +1,6 @@
+jane-street-market-prediction*
+*.h5 
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
