@@ -4,6 +4,11 @@
 
 https://www.kaggle.com/c/jane-street-market-prediction/overview
 
+
+This repository carries my code for the above Kaggle Competition. This competition was really exciting and first time I had taken serious attempts at market prediction using machine learning. I was excited to learn about purged cross-validation techniques from a financial machine learning textbook and deploy models that achieved a top 12% result, entirely through textbook learning and my own code.
+
+### Blurb
+
 Your challenge will be to use the historical data, mathematical tools, and technological tools at your disposal to create a model that gets as close to certainty as possible. You will be presented with a number of potential trading opportunities, which your model must choose whether to accept or reject.
 
 In general, if one is able to generate a highly predictive model which selects the right trades to execute, they would also be playing an important role in sending the market signals that push prices closer to “fair” values. That is, a better model will mean the market will be more efficient going forward. However, developing good models will be challenging for many reasons, including a very low signal-to-noise ratio, potential redundancy, strong feature correlation, and difficulty of coming up with a proper mathematical formulation.
