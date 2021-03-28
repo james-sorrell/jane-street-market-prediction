@@ -1,5 +1,6 @@
 jane-street-market-prediction*
 src/models/*
+models/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

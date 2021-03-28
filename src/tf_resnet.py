@@ -201,119 +201,59 @@ class MarketDataset:
             'label': torch.tensor(self.label[idx], dtype=torch.float)
         }
 
+def create_resnet_model(input_dim,output_dim):    
+    inp = Input(shape=(input_dim,))
+    x = BatchNormalization()(inp)
+    x = Dropout(0.1)(x)
+    
+    x1 = Dense(1024)(x)
+    x1 = BatchNormalization()(x1)
+    x1 = LeakyReLU(alpha=0.1)(x1)
+    x1 = Dropout(0.3)(x1)
+    x = Concatenate(axis=1)([x,x1])
 
-class Model(nn.Module):
-    def __init__(self):
-        super(Model, self).__init__()
-        self.batch_norm0 = nn.BatchNorm1d(len(all_feat_cols))
-        self.dropout0 = nn.Dropout(0.2)
+    x2 = Dense(512)(x)
+    x2 = BatchNormalization()(x2)
+    x2 = LeakyReLU(alpha=0.1)(x2)
+    x2 = Dropout(0.3)(x2)
+    x = Concatenate(axis=1)([x1,x2])
+    
+    x3 = Dense(256)(x)
+    x3 = BatchNormalization()(x3)
+    x3 = LeakyReLU(alpha=0.1)(x3)
+    x3 = Dropout(0.3)(x3)
+    x = Concatenate(axis=1)([x2,x3])   
+    
+    x = Dense(output_dim,activation='sigmoid')(x)
+    model = Model(inputs=inp,outputs=x)
+    model.compile(optimizer=Adam(0.0001),loss=BinaryCrossentropy(label_smoothing=0.1),metrics=[tf.keras.metrics.AUC(name = 'auc')])
+    return model
 
-        dropout_rate = 0.2
-        hidden_size = 256
-        self.dense1 = nn.Linear(len(all_feat_cols), hidden_size)
-        self.batch_norm1 = nn.BatchNorm1d(hidden_size)
-        self.dropout1 = nn.Dropout(dropout_rate)
+def create_mlp(
+    num_columns, num_labels, hidden_units, dropout_rates, label_smoothing, learning_rate
+):
 
-        self.dense2 = nn.Linear(hidden_size+len(all_feat_cols), hidden_size)
-        self.batch_norm2 = nn.BatchNorm1d(hidden_size)
-        self.dropout2 = nn.Dropout(dropout_rate)
+    inp = tf.keras.layers.Input(shape=(num_columns,))
+    x = tf.keras.layers.BatchNormalization()(inp)
+    x = tf.keras.layers.Dropout(dropout_rates[0])(x)
+    for i in range(len(hidden_units)):
+        x = tf.keras.layers.Dense(hidden_units[i])(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Activation(tf.keras.activations.swish)(x)
+        x = tf.keras.layers.Dropout(dropout_rates[i + 1])(x)
+    
+    x = tf.keras.layers.Dense(num_labels)(x)
+    out = tf.keras.layers.Activation("sigmoid")(x)
 
-        self.dense3 = nn.Linear(hidden_size+hidden_size, hidden_size)
-        self.batch_norm3 = nn.BatchNorm1d(hidden_size)
-        self.dropout3 = nn.Dropout(dropout_rate)
+    model = tf.keras.models.Model(inputs=inp, outputs=out)
+    model.compile(
+        optimizer=tfa.optimizers.RectifiedAdam(learning_rate=learning_rate),
+        loss=tf.keras.losses.BinaryCrossentropy(label_smoothing=label_smoothing),
+        metrics=tf.keras.metrics.AUC(name="AUC"),
+    )
 
-        self.dense4 = nn.Linear(hidden_size+hidden_size, hidden_size)
-        self.batch_norm4 = nn.BatchNorm1d(hidden_size)
-        self.dropout4 = nn.Dropout(dropout_rate)
+    return model
 
-        self.dense5 = nn.Linear(hidden_size+hidden_size, len(target_cols))
-
-        self.Relu = nn.ReLU(inplace=True)
-        self.PReLU = nn.PReLU()
-        self.LeakyReLU = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        # self.GeLU = nn.GELU()
-        self.RReLU = nn.RReLU()
-
-    def forward(self, x):
-        x = self.batch_norm0(x)
-        x = self.dropout0(x)
-
-        x1 = self.dense1(x)
-        x1 = self.batch_norm1(x1)
-        # x = F.relu(x)
-        # x = self.PReLU(x)
-        x1 = self.LeakyReLU(x1)
-        x1 = self.dropout1(x1)
-
-        x = torch.cat([x, x1], 1)
-
-        x2 = self.dense2(x)
-        x2 = self.batch_norm2(x2)
-        # x = F.relu(x)
-        # x = self.PReLU(x)
-        x2 = self.LeakyReLU(x2)
-        x2 = self.dropout2(x2)
-
-        x = torch.cat([x1, x2], 1)
-
-        x3 = self.dense3(x)
-        x3 = self.batch_norm3(x3)
-        # x = F.relu(x)
-        # x = self.PReLU(x)
-        x3 = self.LeakyReLU(x3)
-        x3 = self.dropout3(x3)
-
-        x = torch.cat([x2, x3], 1)
-
-        x4 = self.dense4(x)
-        x4 = self.batch_norm4(x4)
-        # x = F.relu(x)
-        # x = self.PReLU(x)
-        x4 = self.LeakyReLU(x4)
-        x4 = self.dropout4(x4)
-
-        x = torch.cat([x3, x4], 1)
-
-        x = self.dense5(x)
-
-        return x
-
-def train_fn(model, optimizer, scheduler, loss_fn, dataloader, device):
-    model.train()
-    final_loss = 0
-
-    for data in dataloader:
-        optimizer.zero_grad()
-        features = data['features'].to(device)
-        label = data['label'].to(device)
-        outputs = model(features)
-        loss = loss_fn(outputs, label)
-        loss.backward()
-        optimizer.step()
-        if scheduler:
-            scheduler.step()
-
-        final_loss += loss.item()
-
-    final_loss /= len(dataloader)
-
-    return final_loss
-
-def inference_fn(model, dataloader, device):
-    model.eval()
-    preds = []
-
-    for data in dataloader:
-        features = data['features'].to(device)
-
-        with torch.no_grad():
-            outputs = model(features)
-
-        preds.append(outputs.sigmoid().detach().cpu().numpy())
-
-    preds = np.concatenate(preds).reshape(-1, len(target_cols))
-
-    return preds
 
 def utility_score_bincount(date, weight, resp, action):
     count_i = len(np.unique(date))
@@ -419,7 +359,7 @@ t1_ = train.index
 t1 = pd.Series(t1_[:], index=t1_[:]) # t1 is both the trade time and the event time
 t1.head() # notice how the events (mark-to-market) take place 5 days later
 
-num_paths = 3
+num_paths = 5
 num_groups_test = 2
 num_groups = num_paths + 1 
 num_ticks = len(train)
@@ -429,6 +369,11 @@ num_sim = is_test.shape[1] # num of simulations needed to generate all backtest 
 
 ## Cross Validation in Finance: Purging, Embargoing, Combination
 ## https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/#embargoing
+
+
+
+
+
 
 def run():
     torch.multiprocessing.freeze_support()
@@ -470,7 +415,7 @@ def run():
         # loss_fn = nn.BCEWithLogitsLoss()
         loss_fn = SmoothBCEwLogits(smoothing=0.005)
 
-        model_weights = f"{CACHE_PATH}/online_model{_fold}"
+        model_weights = f"{CACHE_PATH}/online_model{_fold}_va-"
         es = EarlyStopping(patience=EARLYSTOP_NUM, mode="max")
         for epoch in range(EPOCHS):
             train_loss = train_fn(model, optimizer, scheduler, loss_fn, train_loader, device)
@@ -485,7 +430,7 @@ def run():
             print(f"FOLD{_fold} EPOCH:{epoch:3} train_loss={train_loss:.5f} "
                     f"valid_u_score={valid_u_score:.5f} valid_auc={valid_auc:.5f} "
                     f"time: {(time.time() - start_time) / 60:.2f}min")
-            es(valid_auc, model, model_path=model_weights+".pth")
+            es(valid_auc, model, model_path=model_weights+f"{valid_auc}.pth")
             if es.early_stop:
                 print("Early stopping")
                 break
@@ -509,6 +454,121 @@ def run():
         valid_score = utility_score_bincount(date=valid.date.values, weight=valid.weight.values, resp=valid.resp.values,
                                             action=valid_pred)
         print(f'{NFOLDS} models valid score: {valid_score}\tauc_score: {auc_score:.4f}\tlogloss_score:{logloss_score:.4f}')
+
+
+
+##############
+
+hidden_units = [160, 160, 160]
+dropout_rates = [0.2, 0.2, 0.2, 0.2]
+label_smoothing = 1e-2
+learning_rate = 1e-3
+
+def utility_score_numba(date, weight, resp, action):
+    Pi = np.bincount(date, weight * resp * action)
+    t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
+    u = min(max(t, 0), 6) * np.sum(Pi)
+    return u
+
+model = create_resnet_model(X.shape[-1],y.shape[-1])
+FOLDS = 5
+
+## Train smaller model to predict original model output
+
+def create_small_nn(input_dim):
+    inp = Input(shape=(input_dim,))
+    x1 = Dense(128)(inp)
+    x1 = BatchNormalization()(x1)
+    x1 = LeakyReLU(alpha=0.1)(x1)
+    x1 = Dropout(0.3)(x1)
+
+    x2 = Dense(64)(x1)
+    x2 = BatchNormalization()(x2)
+    x2 = LeakyReLU(alpha=0.1)(x2)
+    x2 = Dropout(0.3)(x2)
+    
+    out = Dense(5,activation='sigmoid')(x2)
+    model = Model(inputs=inp,outputs=out)
+    return model
+
+
+student= create_small_nn(132)
+tr_util_scores = []
+te_util_scores = []
+
+def run():
+
+    for _fold in range(num_sim):
+            
+        test_idx = is_test[:,_fold]
+        test_times = t1.loc[test_idx]
+        test_times = test_times.drop_duplicates()
+        
+        #embargo
+        test_times_embargoed = embargo(test_times, t1, pct_embargo=0.123)
+        test_times_embargoed = test_times_embargoed.drop_duplicates()
+        
+        #purge
+        train_times = purge(t1, test_times_embargoed)
+        valid = train.loc[test_times.index, :]
+        train_set = MarketDataset(train.loc[train_times.index, :])
+        train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=1)
+        valid_set = MarketDataset(valid)
+        valid_loader = DataLoader(valid_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=1)
+        start_time = time.time()
+        
+for fold, (train_indices, test_indices) in enumerate(splits):
+    teacher_1 = create_resnet_model(X.shape[-1],y.shape[-1])
+    teacher_1.load_weights(f'model_2222_{fold}_finetune.hdf5')
+    teacher_2 = create_resnet_model(X.shape[-1],y.shape[-1])
+    teacher_2.load_weights(f'model_3333_{fold}_finetune.hdf5')
+    teacher_3 = model = create_mlp(X.shape[-1], 5, hidden_units, dropout_rates, label_smoothing, learning_rate)
+
+    teacher_3.load_weights(f'model_4444_{fold}_finetune.hdf5')
+    student= create_small_nn(132)
+    distiller = Distiller(student=student, teacher=[teacher_1,teacher_2,teacher_3])
+    distiller.compile(
+        optimizer=keras.optimizers.Adam(),
+        metrics=[keras.metrics.AUC(name = 'auc')],
+        student_loss_fn=keras.losses.BinaryCrossentropy(label_smoothing=0.1),
+        distillation_loss_fn=keras.losses.BinaryCrossentropy(label_smoothing=0.1),
+        alpha=0.1,
+        temperature=10,
+    )
+
+    X_train, X_test = X[train_indices], X[test_indices]
+    y_train, y_test = y[train_indices], y[test_indices]
+    distiller.fit(X_train, y_train, validation_data=(X_test,y_test),epochs=300,batch_size=4096,callbacks=[EarlyStopping('val_auc',mode='max',patience=10,restore_best_weights=True)])
+    distiller.student.save_weights(f'./model_2222_{fold}_sdistilled.hdf5')
+    
+    ##Evaluate utility scores
+    # Train columns
+    date_tr = train['date'].values[train_indices]
+    weight_tr = train['weight'].values[train_indices]
+    resp_tr = train['resp'].values[train_indices]
+    action_tr_t = train['action'].values[train_indices]
+
+    # Test columns
+    date_te = train['date'].values[test_indices]
+    weight_te = train['weight'].values[test_indices]
+    resp_te = train['resp'].values[test_indices]
+    action_te_t = train['action'].values[test_indices]
+    
+    action_tr = np.where(np.mean(distiller.student.predict(X_train),1)>= 0.5, 1, 0)
+    action_te = np.where(np.mean(distiller.student.predict(X_test) ,1)>= 0.5, 1, 0)
+    train_utility = utility_score_numba(date_tr, weight_tr, resp_tr, action_tr)
+    test_utility = utility_score_numba(date_te, weight_te, resp_te, action_te)
+    tr_util_scores.append(train_utility)
+    te_util_scores.append(test_utility)
+    print(train_utility)
+    print(test_utility)
+    print(utility_score_numba(date_tr, weight_tr, resp_tr, action_tr_t))
+    print(utility_score_numba(date_te, weight_te, resp_te, action_te_t))
+
+
+#####
+
+
 
 if __name__ == '__main__':
     run()
